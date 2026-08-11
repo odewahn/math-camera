@@ -13,8 +13,11 @@ from pynput import keyboard
 WIDTH = 1280
 HEIGHT = 720
 FPS = 30
+LOW_QUALITY_JPEG = 55
+HIGH_QUALITY_JPEG = 95
 
-CAPTURE_HOTKEY = "<ctrl>+<alt>+m"
+LOW_QUALITY_CAPTURE_HOTKEY = "<ctrl>+<alt>+m"
+HIGH_QUALITY_CAPTURE_HOTKEY = "<ctrl>+<alt>+<shift>+m"
 ROTATE_CLOCKWISE_HOTKEY = "<ctrl>+<alt>+."
 ROTATE_COUNTERCLOCKWISE_HOTKEY = "<ctrl>+<alt>+,"
 
@@ -97,16 +100,7 @@ def choose_camera():
             print("Please enter a camera number.")
 
 
-def copy_frame_to_clipboard():
-    global latest_frame
-
-    with frame_lock:
-        if latest_frame is None:
-            print("Camera frame not ready")
-            return
-
-        frame = latest_frame.copy()
-
+def capture_frame_to_clipboard(frame, jpeg_quality, quality_label):
     fd, path = tempfile.mkstemp(
         prefix="math-camera-",
         suffix=".jpg",
@@ -119,7 +113,7 @@ def copy_frame_to_clipboard():
         success = cv2.imwrite(
             path,
             frame,
-            [cv2.IMWRITE_JPEG_QUALITY, 90],
+            [cv2.IMWRITE_JPEG_QUALITY, jpeg_quality],
         )
 
         if not success:
@@ -139,7 +133,12 @@ def copy_frame_to_clipboard():
             check=True,
         )
 
-        print("📷 Copied current frame to clipboard")
+        file_size_bytes = os.path.getsize(path)
+        file_size_kb = file_size_bytes / 1024
+        print(
+            f"📷 Copied {quality_label} frame to clipboard "
+            f"({file_size_kb:.1f} KB)"
+        )
 
     except Exception as e:
         print(f"Capture failed: {e}")
@@ -151,10 +150,32 @@ def copy_frame_to_clipboard():
             pass
 
 
+def copy_frame_to_clipboard(jpeg_quality, quality_label):
+    global latest_frame
+
+    with frame_lock:
+        if latest_frame is None:
+            print("Camera frame not ready")
+            return
+
+        frame = latest_frame.copy()
+
+    capture_frame_to_clipboard(frame, jpeg_quality, quality_label)
+
+
+def copy_low_quality_frame_to_clipboard():
+    copy_frame_to_clipboard(LOW_QUALITY_JPEG, "low-resolution")
+
+
+def copy_high_quality_frame_to_clipboard():
+    copy_frame_to_clipboard(HIGH_QUALITY_JPEG, "high-resolution")
+
+
 def start_hotkey_listener():
     listener = keyboard.GlobalHotKeys(
         {
-            CAPTURE_HOTKEY: copy_frame_to_clipboard,
+            LOW_QUALITY_CAPTURE_HOTKEY: copy_low_quality_frame_to_clipboard,
+            HIGH_QUALITY_CAPTURE_HOTKEY: copy_high_quality_frame_to_clipboard,
             ROTATE_CLOCKWISE_HOTKEY: rotate_clockwise,
             ROTATE_COUNTERCLOCKWISE_HOTKEY: rotate_counterclockwise,
         }
@@ -199,14 +220,16 @@ def main():
     print(f"Capture:     {WIDTH}x{HEIGHT}")
     print()
     print("Global capture:")
-    print("  Control + Option + M")
+    print("  Control + Option + M           low resolution")
+    print("  Control + Option + Shift + M   high resolution")
     print()
     print("Global rotation:")
     print("  Control + Option + .   rotate +90")
     print("  Control + Option + ,   rotate -90")
     print()
     print("Preview controls:")
-    print("  C        capture")
+    print("  C        low-resolution capture")
+    print("  H        high-resolution capture")
     print("  Q        quit")
     print("  Esc      quit")
     print()
@@ -253,7 +276,10 @@ def main():
             key = cv2.waitKey(1) & 0xFF
 
             if key == ord("c"):
-                copy_frame_to_clipboard()
+                copy_low_quality_frame_to_clipboard()
+
+            elif key == ord("h"):
+                copy_high_quality_frame_to_clipboard()
 
             elif key == ord("q") or key == 27:
                 break

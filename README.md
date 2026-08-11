@@ -13,7 +13,7 @@ With Math Camera:
 1. A document camera stays pointed at the desk.
 2. A small Python program keeps the latest frame in memory.
 3. Press **Control + Option + M** from anywhere.
-4. The current camera image is copied to the macOS clipboard.
+4. The current camera image is copied to the macOS clipboard at low resolution for quick pasting.
 5. Press **Command + V** in ChatGPT.
 
 That's it.
@@ -87,7 +87,11 @@ Put your notebook or book under the camera.
 
 From **any application**, press:
 
-**Control + Option + M**
+**Control + Option + M** for a smaller, faster paste
+
+or
+
+**Control + Option + Shift + M** for a higher-detail image
 
 The current frame is copied to the macOS clipboard.
 
@@ -222,6 +226,11 @@ with frame_lock:
 
 When the global keyboard shortcut is pressed, the program copies that frame, encodes it as a JPEG, and puts it on the macOS clipboard.
 
+Math Camera keeps the frame dimensions the same and switches between two JPEG quality levels instead:
+
+- **Low resolution** uses stronger compression for smaller files and faster pasting
+- **High resolution** uses lighter compression for more detail and larger files
+
 The JPEG exists on disk only briefly as an implementation detail and is deleted immediately afterward.
 
 This keeps the program lightweight while making capture feel nearly instantaneous.
@@ -309,13 +318,18 @@ There are two ways to capture the current frame.
 
 The main interface is:
 
-**Control + Option + M**
+**Control + Option + M** for low resolution
+
+and
+
+**Control + Option + Shift + M** for high resolution
 
 Math Camera uses `pynput` to listen for these shortcuts globally:
 
 ```python
 listener = keyboard.GlobalHotKeys({
-    "<ctrl>+<alt>+m": copy_frame_to_clipboard,
+    "<ctrl>+<alt>+m": copy_low_quality_frame_to_clipboard,
+    "<ctrl>+<alt>+<shift>+m": copy_high_quality_frame_to_clipboard,
     "<ctrl>+<alt>+.": rotate_clockwise,
     "<ctrl>+<alt>+,": rotate_counterclockwise,
 })
@@ -335,7 +349,11 @@ pastes it directly into the conversation.
 
 If the preview window has focus, pressing:
 
-**C**
+**C** for low resolution
+
+or
+
+**H** for high resolution
 
 performs the same capture.
 
@@ -347,10 +365,12 @@ This is mostly useful for testing.
 
 | Control | Action |
 | --- | --- |
-| **Control + Option + M** | Capture from anywhere and copy to clipboard |
+| **Control + Option + M** | Low-resolution capture from anywhere |
+| **Control + Option + Shift + M** | High-resolution capture from anywhere |
 | **Control + Option + .** | Rotate by +90 degrees |
 | **Control + Option + ,** | Rotate by -90 degrees |
-| **C** | Capture when the preview has focus |
+| **C** | Low-resolution capture when the preview has focus |
+| **H** | High-resolution capture when the preview has focus |
 | **Q** | Quit |
 | **Esc** | Quit |
 
