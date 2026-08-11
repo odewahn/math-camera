@@ -76,7 +76,7 @@ Available cameras:
   [2] MacBook Air Desk View Camera
   [3] iPhone Camera
 
-Select camera: 0
+Select camera [0]:
 ```
 
 A live preview window will appear.

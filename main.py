@@ -80,7 +80,8 @@ def choose_camera():
 
     while True:
         try:
-            choice = int(input("Select camera: "))
+            raw_choice = input("Select camera [0]: ").strip()
+            choice = 0 if raw_choice == "" else int(raw_choice)
 
             if 0 <= choice < len(devices):
                 device = devices[choice]
