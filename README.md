@@ -48,6 +48,12 @@ Install the project and its dependencies:
 uv sync
 ```
 
+Or install directly from GitHub with `pip`:
+
+```bash
+pip install "git+https://github.com/odewahn/math-camera.git"
+```
+
 ### macOS permissions
 
 Math Camera listens for a global keyboard shortcut, so macOS needs to allow the application running it to receive keyboard events.
@@ -63,7 +69,19 @@ macOS may also ask for **Camera** permission the first time you run it.
 ### Run
 
 ```bash
+uv run math-camera
+```
+
+The repository also keeps `main.py` as a compatibility wrapper, so this still works too:
+
+```bash
 uv run python main.py
+```
+
+To list cameras without starting the preview:
+
+```bash
+uv run math-camera --list-cameras
 ```
 
 Choose your camera:
