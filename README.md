@@ -28,7 +28,7 @@ You can keep working on paper and, whenever you want help, capture exactly what 
 
 - macOS
 - A USB document camera or webcam
-- Python 3.11+
+- Python 3.12+
 - [`uv`](https://docs.astral.sh/uv/)
 
 I'm using an **IPEVO V4K**, but Math Camera should work with other cameras supported by macOS and OpenCV.
@@ -66,18 +66,7 @@ macOS may also ask for **Camera** permission the first time you run it.
 uv run python main.py
 ```
 
-Choose an orientation:
-
-```text
-Orientation:
-
-  [1] Portrait (default)
-  [2] Landscape
-
-Select orientation [1]:
-```
-
-Then choose your camera:
+Choose your camera:
 
 ```text
 Available cameras:
@@ -270,27 +259,18 @@ This also means the program isn't actually tied to the IPEVO. Other cameras supp
 
 ## Portrait and landscape modes
 
-Math Camera supports two physical camera orientations.
+Math Camera starts in portrait mode by default, which is what I use for books and notebooks.
 
-### Portrait
+The camera head is usually turned sideways, which gives a more useful field of view for a page. Math Camera starts with a 90-degree clockwise rotation so the resulting image is upright.
 
-Portrait is the default and is what I use for books and notebooks.
+While the app is running, you can rotate the live frame in either direction:
 
-The camera head is physically turned sideways, which gives a more useful field of view for a page. Math Camera then rotates the frame 90 degrees so that the resulting image is upright:
+- **Control + Option + .** rotates **+90 degrees**
+- **Control + Option + ,** rotates **-90 degrees**
 
-```python
-if orientation == "portrait":
-    frame = cv2.rotate(
-        frame,
-        cv2.ROTATE_90_CLOCKWISE,
-    )
-```
+The rotation is cumulative, so pressing either shortcut four times returns to the starting orientation.
 
-### Landscape
-
-Landscape leaves the camera image unrotated.
-
-This can be more useful when capturing a wider work area, an open two-page spread, or objects rather than individual pages.
+This affects both the clipboard capture and the live preview. The preview continues to scale itself based on the current rotated frame dimensions.
 
 ---
 
@@ -331,11 +311,13 @@ The main interface is:
 
 **Control + Option + M**
 
-Math Camera uses `pynput` to listen for this shortcut globally:
+Math Camera uses `pynput` to listen for these shortcuts globally:
 
 ```python
 listener = keyboard.GlobalHotKeys({
-    "<ctrl>+<alt>+m": copy_frame_to_clipboard
+    "<ctrl>+<alt>+m": copy_frame_to_clipboard,
+    "<ctrl>+<alt>+.": rotate_clockwise,
+    "<ctrl>+<alt>+,": rotate_counterclockwise,
 })
 ```
 
@@ -366,6 +348,8 @@ This is mostly useful for testing.
 | Control | Action |
 | --- | --- |
 | **Control + Option + M** | Capture from anywhere and copy to clipboard |
+| **Control + Option + .** | Rotate by +90 degrees |
+| **Control + Option + ,** | Rotate by -90 degrees |
 | **C** | Capture when the preview has focus |
 | **Q** | Quit |
 | **Esc** | Quit |

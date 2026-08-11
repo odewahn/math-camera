@@ -14,30 +14,47 @@ WIDTH = 1280
 HEIGHT = 720
 FPS = 30
 
-HOTKEY = "<ctrl>+<alt>+m"
+CAPTURE_HOTKEY = "<ctrl>+<alt>+m"
+ROTATE_CLOCKWISE_HOTKEY = "<ctrl>+<alt>+."
+ROTATE_COUNTERCLOCKWISE_HOTKEY = "<ctrl>+<alt>+,"
 
 latest_frame = None
 frame_lock = threading.Lock()
+rotation_quarter_turns = 1
+rotation_lock = threading.Lock()
 
 
-def choose_orientation():
-    print()
-    print("Orientation:")
-    print()
-    print("  [1] Portrait (default)")
-    print("  [2] Landscape")
-    print()
+ROTATIONS = {
+    0: None,
+    1: cv2.ROTATE_90_CLOCKWISE,
+    2: cv2.ROTATE_180,
+    3: cv2.ROTATE_90_COUNTERCLOCKWISE,
+}
 
-    while True:
-        choice = input("Select orientation [1]: ").strip()
 
-        if choice == "" or choice == "1":
-            return "portrait"
+def get_rotation_quarter_turns():
+    with rotation_lock:
+        return rotation_quarter_turns
 
-        if choice == "2":
-            return "landscape"
 
-        print("Please enter 1 or 2.")
+def rotate_clockwise():
+    global rotation_quarter_turns
+
+    with rotation_lock:
+        rotation_quarter_turns = (rotation_quarter_turns + 1) % 4
+        turns = rotation_quarter_turns
+
+    print(f"Rotated preview/capture to {turns * 90} degrees")
+
+
+def rotate_counterclockwise():
+    global rotation_quarter_turns
+
+    with rotation_lock:
+        rotation_quarter_turns = (rotation_quarter_turns - 1) % 4
+        turns = rotation_quarter_turns
+
+    print(f"Rotated preview/capture to {turns * 90} degrees")
 
 
 def get_camera_devices():
@@ -136,7 +153,9 @@ def copy_frame_to_clipboard():
 def start_hotkey_listener():
     listener = keyboard.GlobalHotKeys(
         {
-            HOTKEY: copy_frame_to_clipboard
+            CAPTURE_HOTKEY: copy_frame_to_clipboard,
+            ROTATE_CLOCKWISE_HOTKEY: rotate_clockwise,
+            ROTATE_COUNTERCLOCKWISE_HOTKEY: rotate_counterclockwise,
         }
     )
 
@@ -148,7 +167,6 @@ def start_hotkey_listener():
 def main():
     global latest_frame
 
-    orientation = choose_orientation()
     camera_index, device = choose_camera()
 
     camera_name = device.localizedName()
@@ -176,11 +194,15 @@ def main():
     print("Math Camera")
     print("-----------")
     print(f"Camera:      {camera_name}")
-    print(f"Orientation: {orientation}")
+    print("Orientation: Portrait (default)")
     print(f"Capture:     {WIDTH}x{HEIGHT}")
     print()
     print("Global capture:")
     print("  Control + Option + M")
+    print()
+    print("Global rotation:")
+    print("  Control + Option + .   rotate +90")
+    print("  Control + Option + ,   rotate -90")
     print()
     print("Preview controls:")
     print("  C        capture")
@@ -195,13 +217,10 @@ def main():
             if not ok:
                 continue
 
-            # Physical camera turned sideways:
-            # rotate image so the page appears upright.
-            if orientation == "portrait":
-                frame = cv2.rotate(
-                    frame,
-                    cv2.ROTATE_90_CLOCKWISE,
-                )
+            rotation = ROTATIONS[get_rotation_quarter_turns()]
+
+            if rotation is not None:
+                frame = cv2.rotate(frame, rotation)
 
             with frame_lock:
                 latest_frame = frame.copy()
