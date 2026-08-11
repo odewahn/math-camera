@@ -6,27 +6,81 @@ import subprocess
 import tempfile
 import threading
 
+from AVFoundation import AVCaptureDevice, AVMediaTypeVideo
 from pynput import keyboard
 
-
-CAMERA_INDEX = 0
 
 WIDTH = 1280
 HEIGHT = 720
 FPS = 30
 
-PREVIEW_WIDTH = 640
-PREVIEW_HEIGHT = 360
-
 HOTKEY = "<ctrl>+<alt>+m"
-
 
 latest_frame = None
 frame_lock = threading.Lock()
 
 
+def choose_orientation():
+    print()
+    print("Orientation:")
+    print()
+    print("  [1] Portrait (default)")
+    print("  [2] Landscape")
+    print()
+
+    while True:
+        choice = input("Select orientation [1]: ").strip()
+
+        if choice == "" or choice == "1":
+            return "portrait"
+
+        if choice == "2":
+            return "landscape"
+
+        print("Please enter 1 or 2.")
+
+
+def get_camera_devices():
+    return list(
+        AVCaptureDevice.devicesWithMediaType_(AVMediaTypeVideo)
+    )
+
+
+def choose_camera():
+    devices = get_camera_devices()
+
+    if not devices:
+        raise RuntimeError("No cameras found")
+
+    print()
+    print("Available cameras:")
+    print()
+
+    for i, device in enumerate(devices):
+        print(f"  [{i}] {device.localizedName()}")
+
+    print()
+
+    while True:
+        try:
+            choice = int(input("Select camera: "))
+
+            if 0 <= choice < len(devices):
+                device = devices[choice]
+
+                print()
+                print(f"Selected: {device.localizedName()}")
+
+                return choice, device
+
+            print("Please choose one of the listed cameras.")
+
+        except ValueError:
+            print("Please enter a camera number.")
+
+
 def copy_frame_to_clipboard():
-    """Copy the latest camera frame to the macOS clipboard."""
+    global latest_frame
 
     with frame_lock:
         if latest_frame is None:
@@ -35,13 +89,12 @@ def copy_frame_to_clipboard():
 
         frame = latest_frame.copy()
 
-    # AppleScript's simplest reliable way to put an image
-    # on the macOS clipboard is to read it from a temporary file.
     fd, path = tempfile.mkstemp(
-        prefix="ipevo-",
+        prefix="math-camera-",
         suffix=".jpg",
         dir="/tmp",
     )
+
     os.close(fd)
 
     try:
@@ -60,7 +113,11 @@ def copy_frame_to_clipboard():
         '''
 
         subprocess.run(
-            ["/usr/bin/osascript", "-e", applescript],
+            [
+                "/usr/bin/osascript",
+                "-e",
+                applescript,
+            ],
             check=True,
         )
 
@@ -77,11 +134,11 @@ def copy_frame_to_clipboard():
 
 
 def start_hotkey_listener():
-    """Listen for the global capture shortcut."""
-
-    listener = keyboard.GlobalHotKeys({
-        HOTKEY: copy_frame_to_clipboard
-    })
+    listener = keyboard.GlobalHotKeys(
+        {
+            HOTKEY: copy_frame_to_clipboard
+        }
+    )
 
     listener.start()
 
@@ -91,13 +148,23 @@ def start_hotkey_listener():
 def main():
     global latest_frame
 
+    orientation = choose_orientation()
+    camera_index, device = choose_camera()
+
+    camera_name = device.localizedName()
+
+    print()
+    print(f"Opening {camera_name}...")
+
     cap = cv2.VideoCapture(
-        CAMERA_INDEX,
+        camera_index,
         cv2.CAP_AVFOUNDATION,
     )
 
     if not cap.isOpened():
-        raise RuntimeError("Could not open IPEVO camera")
+        raise RuntimeError(
+            f"Could not open camera: {camera_name}"
+        )
 
     cap.set(cv2.CAP_PROP_FRAME_WIDTH, WIDTH)
     cap.set(cv2.CAP_PROP_FRAME_HEIGHT, HEIGHT)
@@ -106,12 +173,19 @@ def main():
     listener = start_hotkey_listener()
 
     print()
-    print("IPEVO Math Camera")
-    print("-----------------")
-    print(f"Camera: {WIDTH}x{HEIGHT}")
-    print("Global capture: Control + Option + M")
-    print("Press C in the preview window to capture")
-    print("Press Q or Esc to quit")
+    print("Math Camera")
+    print("-----------")
+    print(f"Camera:      {camera_name}")
+    print(f"Orientation: {orientation}")
+    print(f"Capture:     {WIDTH}x{HEIGHT}")
+    print()
+    print("Global capture:")
+    print("  Control + Option + M")
+    print()
+    print("Preview controls:")
+    print("  C        capture")
+    print("  Q        quit")
+    print("  Esc      quit")
     print()
 
     try:
@@ -121,22 +195,43 @@ def main():
             if not ok:
                 continue
 
+            # Physical camera turned sideways:
+            # rotate image so the page appears upright.
+            if orientation == "portrait":
+                frame = cv2.rotate(
+                    frame,
+                    cv2.ROTATE_90_CLOCKWISE,
+                )
+
             with frame_lock:
                 latest_frame = frame.copy()
 
+            # Scale preview while preserving aspect ratio.
+            max_preview_width = 700
+            max_preview_height = 700
+
+            height, width = frame.shape[:2]
+
+            scale = min(
+                max_preview_width / width,
+                max_preview_height / height,
+                1.0,
+            )
+
             preview = cv2.resize(
                 frame,
-                (PREVIEW_WIDTH, PREVIEW_HEIGHT),
+                None,
+                fx=scale,
+                fy=scale,
             )
 
             cv2.imshow(
-                "IPEVO Math Camera",
+                f"Math Camera — {camera_name}",
                 preview,
             )
 
             key = cv2.waitKey(1) & 0xFF
 
-            # Local capture for testing
             if key == ord("c"):
                 copy_frame_to_clipboard()
 
