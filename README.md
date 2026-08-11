@@ -66,6 +66,8 @@ and enable Terminal, iTerm, Warp, or whichever application you're using to run M
 
 macOS may also ask for **Camera** permission the first time you run it.
 
+If Accessibility permission is missing, Math Camera prints the exact settings path and exits so you can enable it before retrying.
+
 ### Run
 
 ```bash
@@ -84,17 +86,21 @@ To list cameras without starting the preview:
 uv run math-camera --list-cameras
 ```
 
-Choose your camera:
+Math Camera now opens OpenCV camera `0` by default if it exists, or the first available OpenCV camera otherwise.
+
+If the wrong camera opens, switch cameras from the preview window:
+
+- **N** for next camera
+- **P** for previous camera
+
+You can also inspect the available OpenCV indexes ahead of time:
 
 ```text
-Available cameras:
+OpenCV-accessible camera indexes:
 
-  [0] IPEVO V4K
-  [1] MacBook Air Camera
-  [2] MacBook Air Desk View Camera
-  [3] iPhone Camera
-
-Select camera [0]:
+[0] 1280x720
+[1] 1280x720
+[2] 1920x1080
 ```
 
 A live preview window will appear.
@@ -389,6 +395,8 @@ This is mostly useful for testing.
 | **Control + Option + ,** | Rotate by -90 degrees |
 | **C** | Low-resolution capture when the preview has focus |
 | **H** | High-resolution capture when the preview has focus |
+| **N** | Switch to the next camera |
+| **P** | Switch to the previous camera |
 | **Q** | Quit |
 | **Esc** | Quit |
 
