@@ -107,7 +107,11 @@ Available camera indexes:
 [2] 1920x1080
 ```
 
-A live preview window will appear.
+A Dear PyGui control panel with a live preview will appear. Use it to select
+the camera, change rotation, switch between Chat and Submission modes, and
+trigger low- or high-resolution captures. These controls update the same
+settings used by the global hotkeys, so the panel can remain minimized or
+unfocused while you work in another application.
 
 ### Capture
 

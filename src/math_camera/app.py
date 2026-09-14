@@ -5,7 +5,7 @@ import threading
 from math_camera import __version__
 from math_camera.cameras import camera_info_from_device, next_camera, select_camera
 from math_camera.capture import CaptureRequest, CaptureWorker, MacOSClipboard
-from math_camera.processing import encode_jpeg, rotate_frame
+from math_camera.processing import encode_jpeg
 from math_camera.state import FrameStore, SharedState
 
 if platform.system() == "Darwin":
@@ -477,6 +477,7 @@ def run(camera_index=None):
         lambda success: play_capture_sound() if success else play_capture_error_sound(),
     )
 
+    shared_state.update_settings(camera_id=selected_camera.unique_id if selected_camera else None)
     listener = None
     selection_lock = threading.Lock()
 
@@ -489,6 +490,15 @@ def run(camera_index=None):
                 return
             selected = select_camera(camera_infos, camera.camera_id)
             selected = next_camera(camera_infos, selected.unique_id, step)
+            camera_index = selected.index
+            shared_state.update_settings(camera_id=selected.unique_id)
+            clear_latest_frame()
+            camera.set_camera_id(selected.unique_id)
+            print(f"Switching to {selected.name} (AVFoundation device {camera_index})")
+
+    def select_camera_from_gui(selected):
+        nonlocal camera_index
+        with selection_lock:
             camera_index = selected.index
             shared_state.update_settings(camera_id=selected.unique_id)
             clear_latest_frame()
@@ -517,103 +527,40 @@ def run(camera_index=None):
             lambda: switch_camera(-1),
         )
 
-    print()
-    print("Math Camera")
-    print("-----------")
-    print(f"Camera:      AVFoundation device {camera_index}")
-    print("Orientation: Portrait (default)")
-    print(f"Capture:     {WIDTH}x{HEIGHT}")
-    print()
-
-    if accessibility_ok:
-        print("Global capture:")
-        print("  Control + Option + M           low resolution")
-        print("  Control + Option + Shift + M   high resolution")
-        print()
-        print("Global rotation:")
-        print("  Control + Option + .   rotate +90")
-        print("  Control + Option + ,   rotate -90")
-        print()
-
-    print("Preview controls:")
-    print("  C        low-resolution capture")
-    print("  H        high-resolution capture")
-    print("  N        next camera")
-    print("  P        previous camera")
-    print("  Q        quit")
-    print("  Esc      quit")
-    print()
-
-    last_preview = None
-
     try:
-        while True:
-            frame = camera.get_frame()
+        from math_camera.gui import CameraGui
 
-            if frame is not None:
-                with frame_lock:
-                    latest_frame = frame.copy()
-                frame_store.set(frame)
-
-                preview_frame = rotate_frame(frame, get_rotation_quarter_turns())
-
-                height, width = preview_frame.shape[:2]
-                scale = min(
-                    700 / width,
-                    700 / height,
-                    1.0,
-                )
-                preview = cv2.resize(
-                    preview_frame,
-                    None,
-                    fx=scale,
-                    fy=scale,
-                )
-                last_preview = preview
-            else:
-                preview = last_preview.copy() if last_preview is not None else None
-
-                if preview is not None:
-                    cv2.putText(
-                        preview,
-                        "Waiting for camera...",
-                        (20, 40),
-                        cv2.FONT_HERSHEY_SIMPLEX,
-                        0.9,
-                        (0, 0, 255),
-                        2,
-                    )
-
-            if preview is not None:
-                cv2.imshow(
-                    "Math Camera",
-                    preview,
-                )
-
-                if hasattr(cv2, "setWindowTitle"):
-                    cv2.setWindowTitle(
-                        "Math Camera",
-                        f"Math Camera — device {camera_index}",
-                    )
-
-            key = cv2.waitKey(30 if frame is None else 1) & 0xFF
-
-            if key == ord("c"):
-                copy_low_quality_frame_to_clipboard()
-
-            elif key == ord("h"):
+        gui = CameraGui(
+            shared_state,
+            frame_store,
+            camera,
+            get_camera_infos(),
+            select_camera_from_gui,
+            lambda high_quality: (
                 copy_high_quality_frame_to_clipboard()
+                if high_quality
+                else copy_low_quality_frame_to_clipboard()
+            ),
+            lambda: None,
+        )
 
-            elif key in (ord("n"), ord("N"), ord("p"), ord("P")):
-                switch_camera(1 if key in (ord("n"), ord("N")) else -1)
+        # NativeCameraCapture acquires frames independently. This small polling
+        # thread publishes snapshots for both the GUI and global capture path.
+        def publish_frames():
+            while not camera.shutdown_event.is_set():
+                frame = camera.get_frame()
+                if frame is not None:
+                    frame_store.set(frame)
+                camera.shutdown_event.wait(1 / FPS)
 
-            elif key == ord("q") or key == 27:
-                break
+        frame_thread = threading.Thread(target=publish_frames, name="frame-store", daemon=True)
+        frame_thread.start()
+        gui.run()
+        frame_thread.join(timeout=2)
 
     except KeyboardInterrupt:
         print()
         print("Stopping Math Camera...")
-
     finally:
         if listener is not None:
             listener.stop()
@@ -623,4 +570,3 @@ def run(camera_index=None):
             capture_worker = None
         stop_power_notification_listener(power_listener)
         camera.close()
-        cv2.destroyAllWindows()
