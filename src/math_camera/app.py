@@ -3,7 +3,8 @@ import platform
 import subprocess
 import tempfile
 import threading
-import time
+
+from math_camera import __version__
 
 if platform.system() == "Darwin":
     import cv2
@@ -12,6 +13,12 @@ if platform.system() == "Darwin":
         AXIsProcessTrusted,
         AXIsProcessTrustedWithOptions,
         kAXTrustedCheckOptionPrompt,
+    )
+
+    from AppKit import (
+        NSWorkspace,
+        NSWorkspaceDidWakeNotification,
+        NSWorkspaceWillSleepNotification,
     )
 
     from AVFoundation import (
@@ -25,17 +32,22 @@ if platform.system() == "Darwin":
 
     from pynput import keyboard
 
+    from math_camera.native_camera import NativeCameraCapture
+
 else:
     cv2 = None
     AVCaptureDevice = None
     AVMediaTypeVideo = None
     keyboard = None
+    NSWorkspace = None
+    NSWorkspaceDidWakeNotification = None
+    NSWorkspaceWillSleepNotification = None
+    NativeCameraCapture = None
 
 
 WIDTH = 1280
 HEIGHT = 720
 FPS = 30
-
 LOW_QUALITY_JPEG = 55
 HIGH_QUALITY_JPEG = 95
 CAPTURE_SOUND_PATH = "/System/Library/Sounds/Glass.aiff"
@@ -259,76 +271,21 @@ def get_camera_devices():
     )
 
 
-def probe_opencv_cameras(max_index=10):
-    """
-    Discover which indexes OpenCV itself can actually open.
-
-    IMPORTANT:
-
-    AVFoundation's device ordering and OpenCV's AVFoundation camera
-    indexes are not guaranteed to be the same. We therefore treat the
-    two lists independently.
-    """
-
-    cameras = []
-
-    for index in range(max_index):
-        cap = cv2.VideoCapture(
-            index,
-            cv2.CAP_AVFOUNDATION,
-        )
-
-        if not cap.isOpened():
-            cap.release()
-            continue
-
-        ok, frame = cap.read()
-
-        if ok and frame is not None:
-            height, width = frame.shape[:2]
-
-            cameras.append(
-                {
-                    "opencv_index": index,
-                    "width": width,
-                    "height": height,
-                }
-            )
-
-        cap.release()
-
-    return cameras
-
-
 def list_cameras():
     ensure_supported_platform()
-    cameras = probe_opencv_cameras()
+    cameras = get_camera_devices()
 
     if not cameras:
-        print("No OpenCV-accessible cameras found")
+        print("No AVFoundation cameras found")
         return 1
 
-    print("OpenCV-accessible camera indexes:")
+    print("AVFoundation camera indexes:")
     print()
 
-    for camera in cameras:
-        print(
-            f"[{camera['opencv_index']}] "
-            f"{camera['width']}x{camera['height']}"
-        )
+    for index, camera in enumerate(cameras):
+        print(f"[{index}] {camera.localizedName()}")
 
     return 0
-
-
-def get_available_camera_indexes():
-    cameras = probe_opencv_cameras()
-
-    if not cameras:
-        raise RuntimeError(
-            "OpenCV could not open any cameras."
-        )
-
-    return [camera["opencv_index"] for camera in cameras]
 
 
 def get_initial_camera_index(available_indexes):
@@ -338,34 +295,38 @@ def get_initial_camera_index(available_indexes):
     return available_indexes[0]
 
 
-def open_camera(camera_index):
-    cap = cv2.VideoCapture(
-        camera_index,
-        cv2.CAP_AVFOUNDATION,
-    )
+def start_power_notification_listener(on_sleep, on_wake):
+    workspace = NSWorkspace.sharedWorkspace()
+    center = workspace.notificationCenter()
+    observers = []
 
-    if not cap.isOpened():
-        cap.release()
-        raise RuntimeError(
-            f"Could not open OpenCV camera index {camera_index}"
+    for notification_name, callback in (
+        (NSWorkspaceWillSleepNotification, on_sleep),
+        (NSWorkspaceDidWakeNotification, on_wake),
+    ):
+        observer = center.addObserverForName_object_queue_usingBlock_(
+            notification_name,
+            None,
+            None,
+            callback,
         )
+        observers.append(observer)
 
-    cap.set(
-        cv2.CAP_PROP_FRAME_WIDTH,
-        WIDTH,
-    )
+    return center, observers
 
-    cap.set(
-        cv2.CAP_PROP_FRAME_HEIGHT,
-        HEIGHT,
-    )
 
-    cap.set(
-        cv2.CAP_PROP_FPS,
-        FPS,
-    )
+def stop_power_notification_listener(listener):
+    center, observers = listener
 
-    return cap
+    for observer in observers:
+        center.removeObserver_(observer)
+
+
+def clear_latest_frame():
+    global latest_frame
+
+    with frame_lock:
+        latest_frame = None
 
 
 def get_next_camera_index(
@@ -549,34 +510,48 @@ def start_hotkey_listener():
 # App
 # ---------------------------------------------------------------------------
 
-def run():
+def get_native_camera_indexes():
+    count = NativeCameraCapture.device_count()
+    return list(range(count)) or [0]
+
+
+def run(camera_index=None):
     global latest_frame
+
+    print(f"Math Camera {__version__}")
 
     ensure_supported_platform()
 
     accessibility_ok = permission_preflight()
-    available_indexes = get_available_camera_indexes()
-    camera_index = get_initial_camera_index(
-        available_indexes
+    available_indexes = get_native_camera_indexes()
+
+    if camera_index is None or camera_index not in available_indexes:
+        camera_index = get_initial_camera_index(available_indexes)
+
+    camera = NativeCameraCapture(
+        camera_index,
+        WIDTH,
+        HEIGHT,
     )
-
-    print()
-    print(
-        "OpenCV cameras found:"
-    )
-
-    for index in available_indexes:
-        print(f"  [{index}]")
-
-    print()
-    print(
-        f"Opening OpenCV camera index "
-        f"{camera_index}..."
-    )
-
-    cap = open_camera(camera_index)
+    camera.start_async()
 
     listener = None
+
+    def on_sleep(_notification):
+        print()
+        print("macOS is going to sleep; pausing native camera session.")
+        clear_latest_frame()
+        camera.pause_for_sleep()
+
+    def on_wake(_notification):
+        print()
+        print("macOS woke up; resuming native camera session.")
+        camera.resume_async()
+
+    power_listener = start_power_notification_listener(
+        on_sleep,
+        on_wake,
+    )
 
     if accessibility_ok:
         listener = start_hotkey_listener()
@@ -585,7 +560,7 @@ def run():
     print("Math Camera")
     print("-----------")
     print(
-        f"Camera:      OpenCV index {camera_index}"
+        f"Camera:      AVFoundation device {camera_index}"
     )
     print(
         "Orientation: Portrait (default)"
@@ -636,60 +611,70 @@ def run():
     )
     print()
 
+    last_preview = None
+
     try:
         while True:
-            ok, frame = cap.read()
+            frame = camera.get_frame()
 
-            if not ok:
-                time.sleep(0.01)
-                continue
+            if frame is not None:
+                rotation = get_rotation_code(
+                    get_rotation_quarter_turns()
+                )
 
-            rotation = get_rotation_code(
-                get_rotation_quarter_turns()
-            )
+                if rotation is not None:
+                    frame = cv2.rotate(
+                        frame,
+                        rotation,
+                    )
 
-            if rotation is not None:
-                frame = cv2.rotate(
+                with frame_lock:
+                    latest_frame = frame.copy()
+
+                height, width = frame.shape[:2]
+                scale = min(
+                    700 / width,
+                    700 / height,
+                    1.0,
+                )
+                preview = cv2.resize(
                     frame,
-                    rotation,
+                    None,
+                    fx=scale,
+                    fy=scale,
+                )
+                last_preview = preview
+            else:
+                preview = (
+                    last_preview.copy()
+                    if last_preview is not None
+                    else None
                 )
 
-            with frame_lock:
-                latest_frame = frame.copy()
+                if preview is not None:
+                    cv2.putText(
+                        preview,
+                        "Waiting for camera...",
+                        (20, 40),
+                        cv2.FONT_HERSHEY_SIMPLEX,
+                        0.9,
+                        (0, 0, 255),
+                        2,
+                    )
 
-            max_preview_width = 700
-            max_preview_height = 700
-
-            height, width = frame.shape[:2]
-
-            scale = min(
-                max_preview_width / width,
-                max_preview_height / height,
-                1.0,
-            )
-
-            preview = cv2.resize(
-                frame,
-                None,
-                fx=scale,
-                fy=scale,
-            )
-
-            cv2.imshow(
-                "Math Camera",
-                preview,
-            )
-
-            if hasattr(cv2, "setWindowTitle"):
-                cv2.setWindowTitle(
+            if preview is not None:
+                cv2.imshow(
                     "Math Camera",
-                    f"Math Camera — camera {camera_index}",
+                    preview,
                 )
 
-            key = (
-                cv2.waitKey(1)
-                & 0xFF
-            )
+                if hasattr(cv2, "setWindowTitle"):
+                    cv2.setWindowTitle(
+                        "Math Camera",
+                        f"Math Camera — device {camera_index}",
+                    )
+
+            key = cv2.waitKey(30 if frame is None else 1) & 0xFF
 
             if key == ord("c"):
                 copy_low_quality_frame_to_clipboard()
@@ -697,36 +682,29 @@ def run():
             elif key == ord("h"):
                 copy_high_quality_frame_to_clipboard()
 
-            elif key == ord("n"):
-                next_index = get_next_camera_index(
-                    camera_index,
-                    available_indexes,
-                    1,
-                )
-                next_cap = open_camera(next_index)
-                cap.release()
-                cap = next_cap
-                camera_index = next_index
-                latest_frame = None
-                print(f"Switched to camera index {camera_index}")
+            elif key == ord("n") or key == ord("p"):
+                available_indexes = get_native_camera_indexes()
 
-            elif key == ord("p"):
-                next_index = get_next_camera_index(
-                    camera_index,
-                    available_indexes,
-                    -1,
-                )
-                next_cap = open_camera(next_index)
-                cap.release()
-                cap = next_cap
-                camera_index = next_index
-                latest_frame = None
-                print(f"Switched to camera index {camera_index}")
+                if camera_index not in available_indexes:
+                    camera_index = get_initial_camera_index(
+                        available_indexes
+                    )
+                else:
+                    step = 1 if key == ord("n") else -1
+                    camera_index = get_next_camera_index(
+                        camera_index,
+                        available_indexes,
+                        step,
+                    )
 
-            elif (
-                key == ord("q")
-                or key == 27
-            ):
+                clear_latest_frame()
+                camera.set_camera_index(camera_index)
+                print(
+                    f"Switching to AVFoundation device "
+                    f"{camera_index}"
+                )
+
+            elif key == ord("q") or key == 27:
                 break
 
     except KeyboardInterrupt:
@@ -737,5 +715,6 @@ def run():
         if listener is not None:
             listener.stop()
 
-        cap.release()
+        stop_power_notification_listener(power_listener)
+        camera.close()
         cv2.destroyAllWindows()

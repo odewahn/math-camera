@@ -31,7 +31,7 @@ You can keep working on paper and, whenever you want help, capture exactly what 
 - Python 3.12+
 - [`uv`](https://docs.astral.sh/uv/)
 
-I'm using an **IPEVO V4K**, but Math Camera should work with other cameras supported by macOS and OpenCV.
+I'm using an **IPEVO V4K**, but Math Camera should work with other cameras supported by macOS and AVFoundation.
 
 ### Install
 
@@ -86,17 +86,17 @@ To list cameras without starting the preview:
 uv run math-camera --list-cameras
 ```
 
-Math Camera now opens OpenCV camera `0` by default if it exists, or the first available OpenCV camera otherwise.
+Math Camera now opens AVFoundation camera `0` by default if it exists, or the first available AVFoundation camera otherwise.
 
 If the wrong camera opens, switch cameras from the preview window:
 
 - **N** for next camera
 - **P** for previous camera
 
-You can also inspect the available OpenCV indexes ahead of time:
+You can also inspect the available camera indexes ahead of time:
 
 ```text
-OpenCV-accessible camera indexes:
+Available camera indexes:
 
 [0] 1280x720
 [1] 1280x720
@@ -213,10 +213,10 @@ The architecture is deliberately boring:
                                 │
                                 ▼
                        ┌─────────────────┐
-                       │     OpenCV      │
+                       │  AVFoundation  │
                        │                 │
-                       │ latest frame    │
-                       │ kept in RAM     │
+                       │ frame delegate │
+                       │ latest frame   │
                        └────────┬────────┘
                                 │
                      Control + Option + M
@@ -239,7 +239,7 @@ The architecture is deliberately boring:
                        └─────────────────┘
 ```
 
-OpenCV continuously reads frames from the camera, but Math Camera **doesn't continuously save images to disk**.
+AVFoundation continuously delivers frames through a native capture session, while Math Camera **doesn't continuously save images to disk**.
 
 Instead, it keeps the newest frame in memory:
 
@@ -273,20 +273,20 @@ Instead of hard-coding:
 CAMERA_INDEX = 0
 ```
 
-Math Camera uses **AVFoundation via PyObjC** to discover the cameras currently available to macOS and display their human-readable names:
+Math Camera uses **AVFoundation via PyObjC** to discover cameras and receive frames through a native capture session. OpenCV is used for preview processing, rotation, resizing, and JPEG encoding.
 
 ```text
-Available cameras:
+Available camera indexes:
 
-  [0] IPEVO V4K
-  [1] MacBook Air Camera
-  [2] MacBook Air Desk View Camera
-  [3] iPhone Camera
+  [0]
+  [1]
+  [2]
+  [3]
 ```
 
 You select the camera you want when Math Camera starts.
 
-This also means the program isn't actually tied to the IPEVO. Other cameras supported by macOS and OpenCV should work as well.
+This also means the program isn't actually tied to the IPEVO. Other cameras supported by macOS and AVFoundation should work as well.
 
 ---
 
@@ -417,7 +417,7 @@ Used for:
 
 ### PyObjC / AVFoundation
 
-Used to ask macOS which video devices are available and get their human-readable names.
+Used for native camera sessions, frame delivery, device discovery, and sleep/wake recovery.
 
 This lets Math Camera show `IPEVO V4K` instead of simply `Camera 0`.
 

@@ -4,14 +4,19 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "math-camera"
-version = "0.1.0"
+version = "0.1.6"
 description = "macOS document camera to clipboard utility"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
+    "numpy>=2.0; platform_system == 'Darwin'",
     "opencv-python>=5.0.0.93; platform_system == 'Darwin'",
     "pynput>=1.8.2; platform_system == 'Darwin'",
     "pyobjc-framework-avfoundation>=12.2.1; platform_system == 'Darwin'",
+    "pyobjc-framework-cocoa>=12.2.1; platform_system == 'Darwin'",
+    "pyobjc-framework-coremedia>=12.2.1; platform_system == 'Darwin'",
+    "pyobjc-framework-libdispatch>=12.2.1; platform_system == 'Darwin'",
+    "pyobjc-framework-quartz>=12.2.1; platform_system == 'Darwin'",
 ]
 
 authors = [
