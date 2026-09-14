@@ -5,7 +5,7 @@ import threading
 from math_camera import __version__
 from math_camera.cameras import camera_info_from_device, next_camera, select_camera
 from math_camera.capture import CaptureRequest, CaptureWorker, MacOSClipboard
-from math_camera.processing import encode_jpeg
+from math_camera.processing import encode_png, process_submission, rotate_frame
 from math_camera.state import FrameStore, SharedState
 
 if platform.system() == "Darwin":
@@ -227,7 +227,7 @@ def rotate_clockwise():
     with rotation_lock:
         rotation_quarter_turns = (rotation_quarter_turns + 1) % 4
         turns = rotation_quarter_turns
-        shared_state.update_settings(rotation=turns)
+        shared_state.update_settings(rotation=turns, roi=(0.0, 0.0, 1.0, 1.0))
 
     print(f"Rotated preview/capture to {turns * 90} degrees")
 
@@ -238,7 +238,7 @@ def rotate_counterclockwise():
     with rotation_lock:
         rotation_quarter_turns = (rotation_quarter_turns - 1) % 4
         turns = rotation_quarter_turns
-        shared_state.update_settings(rotation=turns)
+        shared_state.update_settings(rotation=turns, roi=(0.0, 0.0, 1.0, 1.0))
 
     print(f"Rotated preview/capture to {turns * 90} degrees")
 
@@ -338,8 +338,10 @@ def capture_frame_to_clipboard(
     quality_label,
 ):
     try:
-        payload = encode_jpeg(frame, jpeg_quality)
-        MacOSClipboard().copy_jpeg(payload)
+        settings = shared_state.get_settings()
+        processed = process_submission(rotate_frame(frame, settings.rotation), settings.roi)
+        payload = encode_png(processed)
+        MacOSClipboard().copy_png(payload)
         file_size_bytes = len(payload)
         file_size_kb = file_size_bytes / 1024
 
@@ -400,14 +402,14 @@ def play_system_sound(sound_path):
 def copy_low_quality_frame_to_clipboard():
     return copy_frame_to_clipboard(
         LOW_QUALITY_JPEG,
-        "low-resolution",
+        "capture",
     )
 
 
 def copy_high_quality_frame_to_clipboard():
     return copy_frame_to_clipboard(
         HIGH_QUALITY_JPEG,
-        "high-resolution",
+        "capture",
     )
 
 

@@ -38,6 +38,8 @@ class Clipboard:
         self.payloads.append(payload)
         self.event.set()
 
+    copy_png = copy_jpeg
+
 
 class PngClipboard(Clipboard):
     def copy_png(self, payload):
@@ -65,7 +67,7 @@ def test_worker_submission_capture_uses_png_and_processing():
     frame[35:65, 70:130] = 20
     request = CaptureRequest(
         frame,
-        CaptureSettings(rotation=0, mode="submission", roi=(0.2, 0.2, 0.6, 0.6)),
+        CaptureSettings(rotation=0, roi=(0.2, 0.2, 0.6, 0.6)),
         80,
         "test",
     )

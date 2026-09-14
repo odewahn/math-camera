@@ -28,7 +28,6 @@ class CameraGui:
         self.on_close = on_close
         self._texture = None
         self._status_text = None
-        self._mode_text = None
         self._camera_combo = None
         self._rotation_combo = None
         self._preview = None
@@ -80,8 +79,6 @@ class CameraGui:
                     callback=self._camera_changed,
                     width=300,
                 )
-                dpg.add_text("Mode")
-                self._mode_text = dpg.add_text(settings.mode.upper())
 
             with dpg.group(horizontal=True):
                 dpg.add_text("Rotation")
@@ -91,22 +88,17 @@ class CameraGui:
                     callback=self._rotation_changed,
                     width=100,
                 )
-                dpg.add_button(label="Chat mode", callback=lambda: self._set_mode("chat"))
-                dpg.add_button(
-                    label="Submission mode", callback=lambda: self._set_mode("submission")
-                )
 
             dpg.add_spacer(height=8)
             self._preview = dpg.add_drawlist(width=PREVIEW_WIDTH, height=PREVIEW_HEIGHT)
             dpg.add_spacer(height=8)
             with dpg.group(horizontal=True):
-                dpg.add_button(label="Capture low", callback=lambda: self.on_capture(False))
-                dpg.add_button(label="Capture high", callback=lambda: self.on_capture(True))
+                dpg.add_button(label="Capture", callback=lambda: self.on_capture(True))
                 self._status_text = dpg.add_text("Ready")
             with dpg.group(horizontal=True):
                 dpg.add_button(label="Auto ROI", callback=self._auto_roi)
                 dpg.add_button(label="Reset ROI", callback=self._reset_roi)
-            dpg.add_text("Global capture: Ctrl+Option+M (low), Ctrl+Option+Shift+M (high)")
+            dpg.add_text("Global capture: Ctrl+Option+M or Ctrl+Option+Shift+M")
 
     def _camera_changed(self, _sender, value, _user_data=None):
         if not self.cameras or value == "No camera":
@@ -122,15 +114,13 @@ class CameraGui:
         self.on_camera(self.cameras[index])
 
     def _rotation_changed(self, _sender, value, _user_data=None):
-        self.state.update_settings(rotation=int(value.rstrip("°")) // 90)
-
-    def _set_mode(self, mode):
-        if mode == "submission" and self.state.get_settings().roi is None:
-            self._reset_roi()
-        self.state.update_settings(mode=mode)
+        self.state.update_settings(
+            rotation=int(value.rstrip("°")) // 90,
+            roi=(0.0, 0.0, 1.0, 1.0),
+        )
 
     def _reset_roi(self, _sender=None, _user_data=None):
-        self.state.update_settings(roi=(0.05, 0.05, 0.9, 0.9))
+        self.state.update_settings(roi=(0.0, 0.0, 1.0, 1.0))
 
     def _auto_roi(self, _sender=None, _user_data=None):
         frame = self.frame_store.snapshot()
@@ -172,12 +162,11 @@ class CameraGui:
             (PREVIEW_WIDTH, PREVIEW_HEIGHT),
             parent=self._preview,
         )
-        if frame is not None and settings.mode == "submission":
+        if frame is not None:
             self._draw_roi(dpg, preview, settings.roi)
         dpg.set_value(self._texture, image.ravel())
         status = self.state.get_status()
         dpg.set_value(self._status_text, f"{status.state.value.title()}: {status.message}")
-        dpg.set_value(self._mode_text, settings.mode.upper())
 
     def _draw_roi(self, dpg, frame, roi):
         if roi is None:

@@ -6,7 +6,7 @@ import tempfile
 import threading
 from dataclasses import dataclass
 
-from .processing import encode_jpeg, encode_png, process_submission, rotate_frame
+from .processing import encode_png, process_submission, rotate_frame
 from .state import CaptureStatus, SharedState
 
 
@@ -71,13 +71,9 @@ class CaptureWorker:
             self.state.publish_status(CaptureStatus.CAPTURING, "Capturing")
             try:
                 frame = rotate_frame(request.frame, request.settings.rotation)
-                if request.settings.mode == "submission":
-                    frame = process_submission(frame, request.settings.roi)
-                    payload = encode_png(frame)
-                    copy_image = self.clipboard.copy_png
-                else:
-                    payload = encode_jpeg(frame, request.quality)
-                    copy_image = self.clipboard.copy_jpeg
+                frame = process_submission(frame, request.settings.roi)
+                payload = encode_png(frame)
+                copy_image = self.clipboard.copy_png
                 try:
                     copy_image(payload)
                 except Exception as error:

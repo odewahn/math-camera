@@ -17,13 +17,10 @@ class CameraInfo:
 class CaptureSettings:
     camera_id: str | None = None
     rotation: int = 1
-    mode: str = "chat"
-    roi: tuple[float, float, float, float] | None = None
+    roi: tuple[float, float, float, float] | None = (0.0, 0.0, 1.0, 1.0)
 
     def __post_init__(self):
         self.rotation %= 4
-        if self.mode not in {"chat", "submission"}:
-            raise ValueError("mode must be 'chat' or 'submission'")
 
 
 class CaptureStatus(Enum):
