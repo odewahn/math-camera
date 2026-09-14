@@ -39,6 +39,12 @@ class Clipboard:
         self.event.set()
 
 
+class PngClipboard(Clipboard):
+    def copy_png(self, payload):
+        self.payloads.append(payload)
+        self.event.set()
+
+
 def test_worker_captures_and_shutdown_rejects_new_work():
     state, clipboard = SharedState(), Clipboard()
     worker = CaptureWorker(state, clipboard)
@@ -50,3 +56,20 @@ def test_worker_captures_and_shutdown_rejects_new_work():
     worker.close()
     assert not worker.submit(request)
     assert not worker.alive
+
+
+def test_worker_submission_capture_uses_png_and_processing():
+    state, clipboard = SharedState(), PngClipboard()
+    worker = CaptureWorker(state, clipboard)
+    frame = np.full((100, 200, 3), 230, dtype=np.uint8)
+    frame[35:65, 70:130] = 20
+    request = CaptureRequest(
+        frame,
+        CaptureSettings(rotation=0, mode="submission", roi=(0.2, 0.2, 0.6, 0.6)),
+        80,
+        "test",
+    )
+    assert worker.submit(request)
+    assert clipboard.event.wait(2)
+    assert clipboard.payloads[0][:8] == b"\x89PNG\r\n\x1a\n"
+    worker.close()

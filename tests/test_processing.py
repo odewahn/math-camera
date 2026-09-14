@@ -1,7 +1,15 @@
 import numpy as np
 import pytest
 
-from math_camera.processing import crop_roi, encode_jpeg, rotate_frame, validate_roi
+from math_camera.processing import (
+    crop_roi,
+    encode_jpeg,
+    encode_png,
+    process_submission,
+    rotate_frame,
+    suggest_roi,
+    validate_roi,
+)
 
 
 def test_rotation_dimensions_and_orientation():
@@ -31,3 +39,28 @@ def test_crop_roi_and_jpeg():
     cropped = crop_roi(frame, (0.25, 0.1, 0.5, 0.5))
     assert cropped.shape[:2] == (50, 100)
     assert encode_jpeg(frame, 55)[:2] == b"\xff\xd8"
+
+
+def test_crop_roi_clamps_small_interactive_overshoot():
+    frame = np.zeros((100, 200, 3), dtype=np.uint8)
+    cropped = crop_roi(frame, (-0.05, -0.05, 1.1, 1.1))
+    assert cropped.shape[:2] == frame.shape[:2]
+
+
+def test_submission_processing_is_grayscale_and_downscaled():
+    frame = np.full((200, 400, 3), 235, dtype=np.uint8)
+    frame[80:120, 100:300] = 30
+    result = process_submission(frame, (0.1, 0.2, 0.8, 0.6), max_dimension=160)
+    assert result.ndim == 2
+    assert max(result.shape) == 160
+    assert encode_png(result)[:8] == b"\x89PNG\r\n\x1a\n"
+
+
+def test_suggest_roi_finds_content_and_blank_frame_returns_none():
+    frame = np.full((100, 200, 3), 240, dtype=np.uint8)
+    frame[35:65, 70:130] = 20
+    roi = suggest_roi(frame)
+    assert roi is not None
+    assert roi[0] < 0.35 and roi[1] < 0.4
+    assert roi[0] + roi[2] > 0.65
+    assert suggest_roi(np.full_like(frame, 240)) is None

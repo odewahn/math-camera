@@ -6,7 +6,7 @@ import tempfile
 import threading
 from dataclasses import dataclass
 
-from .processing import crop_roi, encode_jpeg, rotate_frame
+from .processing import encode_jpeg, encode_png, process_submission, rotate_frame
 from .state import CaptureStatus, SharedState
 
 
@@ -20,12 +20,21 @@ class CaptureRequest:
 
 class MacOSClipboard:
     def copy_jpeg(self, payload: bytes):
-        fd, path = tempfile.mkstemp(prefix="math-camera-", suffix=".jpg", dir="/tmp")
+        self._copy_image(payload, ".jpg", "JPEG picture")
+
+    def copy_png(self, payload: bytes):
+        # AppleScript does not recognize "PNG picture" as a coercion name;
+        # use the PNG file type code instead.
+        self._copy_image(payload, ".png", "«class PNGf»")
+
+    @staticmethod
+    def _copy_image(payload: bytes, suffix: str, apple_script_type: str):
+        fd, path = tempfile.mkstemp(prefix="math-camera-", suffix=suffix, dir="/tmp")
         os.close(fd)
         try:
             with open(path, "wb") as image_file:
                 image_file.write(payload)
-            script = f'set the clipboard to (read POSIX file "{path}" as JPEG picture)'
+            script = f'set the clipboard to (read POSIX file "{path}" as {apple_script_type})'
             subprocess.run(["/usr/bin/osascript", "-e", script], check=True)
         finally:
             try:
@@ -63,13 +72,14 @@ class CaptureWorker:
             try:
                 frame = rotate_frame(request.frame, request.settings.rotation)
                 if request.settings.mode == "submission":
-                    frame = crop_roi(frame, request.settings.roi)
-                try:
+                    frame = process_submission(frame, request.settings.roi)
+                    payload = encode_png(frame)
+                    copy_image = self.clipboard.copy_png
+                else:
                     payload = encode_jpeg(frame, request.quality)
-                except Exception as error:
-                    raise RuntimeError(f"encoding failed: {error}") from error
+                    copy_image = self.clipboard.copy_jpeg
                 try:
-                    self.clipboard.copy_jpeg(payload)
+                    copy_image(payload)
                 except Exception as error:
                     raise RuntimeError(f"clipboard failed: {error}") from error
                 self.state.publish_status(

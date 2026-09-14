@@ -5,11 +5,12 @@ from __future__ import annotations
 import cv2
 import numpy as np
 
-from .processing import resize_frame, rotate_frame
+from .processing import resize_frame, rotate_frame, suggest_roi, validate_roi
 from .state import FrameStore, SharedState
 
 PREVIEW_WIDTH = 960
 PREVIEW_HEIGHT = 540
+ROI_INTERACTION_MARGIN = 0.05
 
 
 class CameraGui:
@@ -30,6 +31,9 @@ class CameraGui:
         self._mode_text = None
         self._camera_combo = None
         self._rotation_combo = None
+        self._preview = None
+        self._roi_drag = None
+        self._display_rect = None
 
     def run(self):
         import dearpygui.dearpygui as dpg
@@ -93,12 +97,15 @@ class CameraGui:
                 )
 
             dpg.add_spacer(height=8)
-            dpg.add_image(self._texture, width=PREVIEW_WIDTH, height=PREVIEW_HEIGHT)
+            self._preview = dpg.add_drawlist(width=PREVIEW_WIDTH, height=PREVIEW_HEIGHT)
             dpg.add_spacer(height=8)
             with dpg.group(horizontal=True):
                 dpg.add_button(label="Capture low", callback=lambda: self.on_capture(False))
                 dpg.add_button(label="Capture high", callback=lambda: self.on_capture(True))
                 self._status_text = dpg.add_text("Ready")
+            with dpg.group(horizontal=True):
+                dpg.add_button(label="Auto ROI", callback=self._auto_roi)
+                dpg.add_button(label="Reset ROI", callback=self._reset_roi)
             dpg.add_text("Global capture: Ctrl+Option+M (low), Ctrl+Option+Shift+M (high)")
 
     def _camera_changed(self, _sender, value, _user_data=None):
@@ -118,7 +125,21 @@ class CameraGui:
         self.state.update_settings(rotation=int(value.rstrip("°")) // 90)
 
     def _set_mode(self, mode):
+        if mode == "submission" and self.state.get_settings().roi is None:
+            self._reset_roi()
         self.state.update_settings(mode=mode)
+
+    def _reset_roi(self, _sender=None, _user_data=None):
+        self.state.update_settings(roi=(0.05, 0.05, 0.9, 0.9))
+
+    def _auto_roi(self, _sender=None, _user_data=None):
+        frame = self.frame_store.snapshot()
+        if frame is None:
+            return
+        settings = self.state.get_settings()
+        suggestion = suggest_roi(rotate_frame(frame, settings.rotation))
+        if suggestion is not None:
+            self.state.update_settings(roi=suggestion)
 
     def _close(self, _sender=None, _user_data=None):
         import dearpygui.dearpygui as dpg
@@ -144,10 +165,125 @@ class CameraGui:
         else:
             preview = rotate_frame(frame, settings.rotation)
             image = self._fit_preview(preview)
+        dpg.delete_item(self._preview, children_only=True)
+        dpg.draw_image(
+            self._texture,
+            (0, 0),
+            (PREVIEW_WIDTH, PREVIEW_HEIGHT),
+            parent=self._preview,
+        )
+        if frame is not None and settings.mode == "submission":
+            self._draw_roi(dpg, preview, settings.roi)
         dpg.set_value(self._texture, image.ravel())
         status = self.state.get_status()
         dpg.set_value(self._status_text, f"{status.state.value.title()}: {status.message}")
         dpg.set_value(self._mode_text, settings.mode.upper())
+
+    def _draw_roi(self, dpg, frame, roi):
+        if roi is None:
+            return
+        frame_height, frame_width = frame.shape[:2]
+        scale = min(PREVIEW_WIDTH / frame_width, PREVIEW_HEIGHT / frame_height)
+        display_width = frame_width * scale
+        display_height = frame_height * scale
+        offset_x = (PREVIEW_WIDTH - display_width) / 2
+        offset_y = (PREVIEW_HEIGHT - display_height) / 2
+        self._display_rect = (offset_x, offset_y, display_width, display_height)
+        x, y, width, height = roi
+        left = offset_x + x * display_width
+        top = offset_y + y * display_height
+        right = left + width * display_width
+        bottom = top + height * display_height
+        dpg.draw_rectangle(
+            (left, top),
+            (right, bottom),
+            color=(40, 220, 80, 255),
+            thickness=2,
+            parent=self._preview,
+        )
+        handles = {
+            "tl": (left, top),
+            "top": ((left + right) / 2, top),
+            "tr": (right, top),
+            "right": (right, (top + bottom) / 2),
+            "br": (right, bottom),
+            "bottom": ((left + right) / 2, bottom),
+            "bl": (left, bottom),
+            "left": (left, (top + bottom) / 2),
+        }
+        for handle_name, (handle_x, handle_y) in handles.items():
+            dpg.draw_circle(
+                (handle_x, handle_y),
+                10 if len(handle_name) == 2 else 7,
+                color=(40, 220, 80, 255),
+                fill=(40, 220, 80, 180),
+                parent=self._preview,
+            )
+        self._update_roi_from_mouse(dpg, left, top, right, bottom)
+
+    def _update_roi_from_mouse(self, dpg, left, top, right, bottom):
+        preview_left, preview_top = dpg.get_item_rect_min(self._preview)
+        mouse_x, mouse_y = dpg.get_mouse_pos()
+        mouse_x -= preview_left
+        mouse_y -= preview_top
+        pressed = dpg.is_mouse_button_down(dpg.mvMouseButton_Left)
+        if not pressed:
+            self._roi_drag = None
+            return
+        if self._roi_drag is None:
+            handles = {
+                "tl": (left, top),
+                "top": ((left + right) / 2, top),
+                "tr": (right, top),
+                "right": (right, (top + bottom) / 2),
+                "br": (right, bottom),
+                "bottom": ((left + right) / 2, bottom),
+                "bl": (left, bottom),
+                "left": (left, (top + bottom) / 2),
+            }
+            corner_handle = next(
+                (
+                    name
+                    for name, (x, y) in handles.items()
+                    if len(name) == 2 and abs(mouse_x - x) <= 24 and abs(mouse_y - y) <= 24
+                ),
+                None,
+            )
+            handle = corner_handle or next(
+                (
+                    name
+                    for name, (x, y) in handles.items()
+                    if len(name) != 2 and abs(mouse_x - x) <= 16 and abs(mouse_y - y) <= 16
+                ),
+                None,
+            )
+            if handle:
+                self._roi_drag = (handle, mouse_x, mouse_y, self.state.get_settings().roi)
+            elif left <= mouse_x <= right and top <= mouse_y <= bottom:
+                self._roi_drag = ("move", mouse_x, mouse_y, self.state.get_settings().roi)
+            return
+
+        action, start_x, start_y, original = self._roi_drag
+        _, _, display_width, display_height = self._display_rect
+        x, y, width, height = original
+        dx, dy = (mouse_x - start_x) / display_width, (mouse_y - start_y) / display_height
+        if action == "move":
+            x = min(max(-ROI_INTERACTION_MARGIN, x + dx), 1 + ROI_INTERACTION_MARGIN - width)
+            y = min(max(-ROI_INTERACTION_MARGIN, y + dy), 1 + ROI_INTERACTION_MARGIN - height)
+        else:
+            if action in {"tl", "bl", "left"}:
+                x = min(max(-ROI_INTERACTION_MARGIN, x + dx), x + width - 0.01)
+                width = original[0] + original[2] - x
+            if action in {"tr", "br", "right"}:
+                width = min(max(0.01, width + dx), 1 + ROI_INTERACTION_MARGIN - x)
+            if action in {"tl", "tr", "top"}:
+                y = min(max(-ROI_INTERACTION_MARGIN, y + dy), y + height - 0.01)
+                height = original[1] + original[3] - y
+            if action in {"bl", "br", "bottom"}:
+                height = min(max(0.01, height + dy), 1 + ROI_INTERACTION_MARGIN - y)
+        self.state.update_settings(
+            roi=validate_roi((x, y, width, height), allow_outside=ROI_INTERACTION_MARGIN)
+        )
 
     @staticmethod
     def _fit_preview(frame):
