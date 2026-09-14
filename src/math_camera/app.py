@@ -478,7 +478,8 @@ def play_capture_error_sound():
 
 def play_system_sound(sound_path):
     try:
-        subprocess.run(
+        print(f"Playing sound: {sound_path}")
+        result = subprocess.run(
             [
                 "/usr/bin/afplay",
                 sound_path,
@@ -487,8 +488,13 @@ def play_system_sound(sound_path):
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
         )
-    except Exception:
-        pass
+        if result.returncode != 0:
+            print(
+                "Sound playback failed: "
+                f"afplay exited with code {result.returncode}"
+            )
+    except Exception as error:
+        print(f"Sound playback raised an exception: {error}")
 
 
 def copy_low_quality_frame_to_clipboard():
