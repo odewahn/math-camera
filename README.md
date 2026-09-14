@@ -93,6 +93,10 @@ If the wrong camera opens, switch cameras from the preview window:
 - **N** for next camera
 - **P** for previous camera
 
+When the terminal has focus, use the global shortcuts **Control + Option + N**
+and **Control + Option + P** instead. Plain `N` and `P` typed in the terminal
+are only echoed by the shell and cannot be seen by the preview window.
+
 You can also inspect the available camera indexes ahead of time:
 
 ```text

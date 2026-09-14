@@ -5,16 +5,16 @@ import cv2
 import dispatch
 import numpy as np
 import objc
-
 from AVFoundation import (
     AVCaptureDevice,
     AVCaptureDeviceInput,
     AVCaptureSession,
-    AVCaptureVideoDataOutput,
     AVCaptureSessionPresetHigh,
+    AVCaptureVideoDataOutput,
     AVMediaTypeVideo,
 )
 from CoreMedia import CMSampleBufferGetImageBuffer
+from Foundation import NSObject
 from Quartz import (
     CVPixelBufferGetBaseAddress,
     CVPixelBufferGetBytesPerRow,
@@ -25,7 +25,6 @@ from Quartz import (
     kCVPixelBufferPixelFormatTypeKey,
     kCVPixelFormatType_32BGRA,
 )
-from Foundation import NSObject
 
 
 class NativeCameraDelegate(NSObject):
@@ -54,8 +53,9 @@ class NativeCameraDelegate(NSObject):
 
 
 class NativeCameraCapture:
-    def __init__(self, camera_index, width, height):
+    def __init__(self, camera_index=0, width=1280, height=720, camera_id=None):
         self.camera_index = camera_index
+        self.camera_id = camera_id
         self.width = width
         self.height = height
         self.frame_lock = threading.Lock()
@@ -73,11 +73,14 @@ class NativeCameraCapture:
         self.restart_thread = None
         self.resume_thread = None
 
+    @property
+    def canonical_size(self):
+        """Delivered BGR frame size as ``(width, height)``."""
+        return self.width, self.height
+
     @staticmethod
     def device_count():
-        return len(
-            AVCaptureDevice.devicesWithMediaType_(AVMediaTypeVideo)
-        )
+        return len(AVCaptureDevice.devicesWithMediaType_(AVMediaTypeVideo))
 
     def get_frame(self):
         with self.frame_lock:
@@ -124,10 +127,13 @@ class NativeCameraCapture:
             ).reshape(height, bytes_per_row // 4, 4)
             bgra = bgra[:, :width, :].copy()
 
-            return cv2.cvtColor(
+            frame = cv2.cvtColor(
                 bgra,
                 cv2.COLOR_BGRA2BGR,
             )
+            if frame.shape[1] != self.width or frame.shape[0] != self.height:
+                frame = cv2.resize(frame, (self.width, self.height), interpolation=cv2.INTER_AREA)
+            return frame
         finally:
             CVPixelBufferUnlockBaseAddress(pixel_buffer, 0)
 
@@ -135,16 +141,10 @@ class NativeCameraCapture:
         print(f"Native camera frame error: {error}")
 
     def start_async(self):
-        if (
-            self.shutdown_event.is_set()
-            or self.sleeping_event.is_set()
-        ):
+        if self.shutdown_event.is_set() or self.sleeping_event.is_set():
             return
 
-        if (
-            self.start_thread is not None
-            and self.start_thread.is_alive()
-        ):
+        if self.start_thread is not None and self.start_thread.is_alive():
             return
 
         self.start_thread = threading.Thread(
@@ -156,25 +156,17 @@ class NativeCameraCapture:
 
     def start_until_ready(self):
         with self.operation_lock:
-            while not (
-                self.shutdown_event.is_set()
-                or self.sleeping_event.is_set()
-            ):
+            while not (self.shutdown_event.is_set() or self.sleeping_event.is_set()):
                 try:
                     self.start_session()
-                    print(
-                        f"Native camera started "
-                        f"(AVFoundation device {self.camera_index})"
-                    )
+                    print(f"Native camera started (AVFoundation device {self.camera_index})")
                     return
                 except Exception as error:
                     print(f"Waiting for native camera: {error}")
                     self.shutdown_event.wait(1.0)
 
     def start_session(self):
-        devices = list(
-            AVCaptureDevice.devicesWithMediaType_(AVMediaTypeVideo)
-        )
+        devices = list(AVCaptureDevice.devicesWithMediaType_(AVMediaTypeVideo))
 
         if not devices:
             raise RuntimeError("No AVFoundation cameras are available")
@@ -182,12 +174,22 @@ class NativeCameraCapture:
         if self.camera_index >= len(devices):
             self.camera_index = 0
 
-        device = devices[self.camera_index]
-        capture_input, error = (
-            AVCaptureDeviceInput.deviceInputWithDevice_error_(
-                device,
+        device = (
+            next(
+                (candidate for candidate in devices if str(candidate.uniqueID()) == self.camera_id),
                 None,
             )
+            if self.camera_id is not None
+            else None
+        )
+        if device is None:
+            if self.camera_index >= len(devices):
+                self.camera_index = 0
+            device = devices[self.camera_index]
+            self.camera_id = str(device.uniqueID())
+        capture_input, error = AVCaptureDeviceInput.deviceInputWithDevice_error_(
+            device,
+            None,
         )
 
         if capture_input is None:
@@ -203,10 +205,11 @@ class NativeCameraCapture:
 
         output = AVCaptureVideoDataOutput.alloc().init()
         output.setAlwaysDiscardsLateVideoFrames_(True)
-        output.setVideoSettings_({
-            kCVPixelBufferPixelFormatTypeKey:
-                kCVPixelFormatType_32BGRA,
-        })
+        output.setVideoSettings_(
+            {
+                kCVPixelBufferPixelFormatTypeKey: kCVPixelFormatType_32BGRA,
+            }
+        )
 
         delegate = NativeCameraDelegate.alloc().initWithCamera_(self)
         callback_queue = dispatch.dispatch_queue_create(
@@ -248,16 +251,10 @@ class NativeCameraCapture:
         self.clear_latest_frame()
 
     def restart_async(self):
-        if (
-            self.shutdown_event.is_set()
-            or self.sleeping_event.is_set()
-        ):
+        if self.shutdown_event.is_set() or self.sleeping_event.is_set():
             return
 
-        if (
-            self.restart_thread is not None
-            and self.restart_thread.is_alive()
-        ):
+        if self.restart_thread is not None and self.restart_thread.is_alive():
             return
 
         self.restart_thread = threading.Thread(
@@ -273,16 +270,10 @@ class NativeCameraCapture:
             self._start_until_ready()
 
     def _start_until_ready(self):
-        while not (
-            self.shutdown_event.is_set()
-            or self.sleeping_event.is_set()
-        ):
+        while not (self.shutdown_event.is_set() or self.sleeping_event.is_set()):
             try:
                 self.start_session()
-                print(
-                    f"Native camera started "
-                    f"(AVFoundation device {self.camera_index})"
-                )
+                print(f"Native camera started (AVFoundation device {self.camera_index})")
                 return
             except Exception as error:
                 print(f"Waiting for native camera: {error}")
@@ -291,10 +282,7 @@ class NativeCameraCapture:
     def pause_for_sleep(self):
         self.sleeping_event.set()
         self.clear_latest_frame()
-        print(
-            "Native camera entering sleep; preserving AVFoundation "
-            "session for wake."
-        )
+        print("Native camera entering sleep; preserving AVFoundation session for wake.")
 
     def resume_async(self):
         if self.shutdown_event.is_set():
@@ -302,10 +290,7 @@ class NativeCameraCapture:
 
         self.sleeping_event.clear()
 
-        if (
-            self.resume_thread is not None
-            and self.resume_thread.is_alive()
-        ):
+        if self.resume_thread is not None and self.resume_thread.is_alive():
             return
 
         self.resume_thread = threading.Thread(
@@ -336,15 +321,9 @@ class NativeCameraCapture:
                         )
                         return
 
-                    print(
-                        "Existing native camera session did not deliver "
-                        "a frame; rebuilding it."
-                    )
+                    print("Existing native camera session did not deliver a frame; rebuilding it.")
                 except Exception as error:
-                    print(
-                        f"Existing native camera session failed: {error}; "
-                        "rebuilding it."
-                    )
+                    print(f"Existing native camera session failed: {error}; rebuilding it.")
 
                 self.stop()
 
@@ -352,8 +331,18 @@ class NativeCameraCapture:
 
     def set_camera_index(self, camera_index):
         self.camera_index = camera_index
+        self.camera_id = None
+        self.restart_async()
+
+    def set_camera_id(self, camera_id):
+        self.camera_id = camera_id
         self.restart_async()
 
     def close(self):
         self.shutdown_event.set()
+        self.sleeping_event.clear()
         self.stop()
+        current = threading.current_thread()
+        for thread in (self.start_thread, self.restart_thread, self.resume_thread):
+            if thread is not None and thread is not current:
+                thread.join(timeout=5)

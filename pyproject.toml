@@ -35,6 +35,24 @@ classifiers = [
 Homepage = "https://github.com/odewahn/math-camera"
 Repository = "https://github.com/odewahn/math-camera"
 
+[project.optional-dependencies]
+dev = [
+    "numpy>=2.0",
+    "opencv-python-headless>=4.10",
+    "pytest>=8.3",
+    "ruff>=0.8",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I"]
+
 [project.scripts]
 math-camera = "math_camera.cli:main"
 
