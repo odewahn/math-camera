@@ -5,7 +5,7 @@ from __future__ import annotations
 import cv2
 import numpy as np
 
-from .processing import resize_frame, rotate_frame, suggest_roi, validate_roi
+from .processing import resize_frame, rotate_frame, validate_roi
 from .state import FrameStore, SharedState
 
 PREVIEW_WIDTH = 960
@@ -30,6 +30,7 @@ class CameraGui:
         self._status_text = None
         self._camera_combo = None
         self._rotation_combo = None
+        self._enhance_checkbox = None
         self._preview = None
         self._roi_drag = None
         self._display_rect = None
@@ -88,6 +89,11 @@ class CameraGui:
                     callback=self._rotation_changed,
                     width=100,
                 )
+                self._enhance_checkbox = dpg.add_checkbox(
+                    label="Enhance image",
+                    default_value=settings.enhance,
+                    callback=self._enhancement_changed,
+                )
 
             dpg.add_spacer(height=8)
             self._preview = dpg.add_drawlist(width=PREVIEW_WIDTH, height=PREVIEW_HEIGHT)
@@ -96,7 +102,6 @@ class CameraGui:
                 dpg.add_button(label="Capture", callback=lambda: self.on_capture(True))
                 self._status_text = dpg.add_text("Ready")
             with dpg.group(horizontal=True):
-                dpg.add_button(label="Auto ROI", callback=self._auto_roi)
                 dpg.add_button(label="Reset ROI", callback=self._reset_roi)
             dpg.add_text("Global capture: Ctrl+Option+M or Ctrl+Option+Shift+M")
 
@@ -119,17 +124,11 @@ class CameraGui:
             roi=(0.0, 0.0, 1.0, 1.0),
         )
 
+    def _enhancement_changed(self, _sender, value, _user_data=None):
+        self.state.update_settings(enhance=bool(value))
+
     def _reset_roi(self, _sender=None, _user_data=None):
         self.state.update_settings(roi=(0.0, 0.0, 1.0, 1.0))
-
-    def _auto_roi(self, _sender=None, _user_data=None):
-        frame = self.frame_store.snapshot()
-        if frame is None:
-            return
-        settings = self.state.get_settings()
-        suggestion = suggest_roi(rotate_frame(frame, settings.rotation))
-        if suggestion is not None:
-            self.state.update_settings(roi=suggestion)
 
     def _close(self, _sender=None, _user_data=None):
         import dearpygui.dearpygui as dpg

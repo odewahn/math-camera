@@ -3,6 +3,9 @@
 import cv2
 import numpy as np
 
+SUBMISSION_BACKGROUND_SIGMA = 80.0
+SUBMISSION_CLAHE_CLIP_LIMIT = 1.0
+
 
 def rotate_frame(frame, rotation):
     rotation %= 4
@@ -57,9 +60,10 @@ def encode_jpeg(frame, quality=95):
 def cleanup_submission(
     frame,
     sharpen=False,
-    illumination_strength=0.85,
-    clahe_clip_limit=1.2,
-    background_sigma=None,
+    illumination_strength=0.9,
+    clahe_clip_limit=SUBMISSION_CLAHE_CLIP_LIMIT,
+    background_sigma=SUBMISSION_BACKGROUND_SIGMA,
+    gamma=1.0,
 ):
     """Correct broad illumination variation while retaining fine detail."""
     if frame is None or getattr(frame, "size", 0) == 0:
@@ -68,23 +72,21 @@ def cleanup_submission(
         raise ValueError("illumination_strength must be between 0 and 1")
     if clahe_clip_limit <= 0:
         raise ValueError("clahe_clip_limit must be positive")
+    if gamma <= 0:
+        raise ValueError("gamma must be positive")
 
     gray = frame if len(frame.shape) == 2 else cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-    if background_sigma is None:
-        # Keep the estimate broader than ordinary handwriting, including for
-        # small, tightly cropped ROIs. A broader estimate targets only the
-        # largest-scale lighting gradients and leaves handwriting contrast in
-        # the source image.
-        background_sigma = max(40.0, min(gray.shape[:2]) / 6)
     if background_sigma <= 0:
         raise ValueError("background_sigma must be positive")
 
     background = cv2.GaussianBlur(gray, (0, 0), background_sigma)
     background = np.maximum(background, 1)
-    target = float(np.median(background))
-    normalized = np.clip(gray.astype(np.float32) / background * target, 0, 255).astype(np.uint8)
-    # Blending avoids the bright/dark halos that full-strength division can
-    # produce around strokes and other fine foreground detail.
+    # Anchor correction at the existing paper tone rather than 255. This
+    # flattens broad shadows without aggressively whitening the whole page.
+    target_tone = float(np.median(background))
+    normalized = np.clip(gray.astype(np.float32) / background * target_tone, 0, 255).astype(
+        np.uint8
+    )
     corrected = cv2.addWeighted(
         gray,
         1.0 - illumination_strength,
@@ -92,12 +94,16 @@ def cleanup_submission(
         illumination_strength,
         0,
     )
+    if gamma != 1.0:
+        lookup = np.array([((value / 255.0) ** gamma) * 255 for value in range(256)])
+        corrected = cv2.LUT(corrected, lookup.astype(np.uint8))
+
     clahe = cv2.createCLAHE(clipLimit=clahe_clip_limit, tileGridSize=(8, 8))
     clean = clahe.apply(corrected)
 
     if sharpen:
         blur = cv2.GaussianBlur(clean, (0, 0), 1.0)
-        clean = cv2.addWeighted(clean, 1.1, blur, -0.1, 0)
+        clean = cv2.addWeighted(clean, 1.15, blur, -0.15, 0)
 
     return clean
 
@@ -113,10 +119,16 @@ def downscale_max_dimension(image, max_dimension=1600):
     return cv2.resize(image, None, fx=scale, fy=scale, interpolation=cv2.INTER_AREA)
 
 
-def process_submission(frame, roi, max_dimension=1600):
+def process_submission(frame, roi, max_dimension=1600, enhance=True):
     """Rotate/crop/clean a frame for compact handwritten-work submission."""
     cropped = crop_roi(frame, roi)
-    return downscale_max_dimension(cleanup_submission(cropped), max_dimension)
+    if enhance:
+        processed = cleanup_submission(cropped)
+    elif len(cropped.shape) == 2:
+        processed = cropped.copy()
+    else:
+        processed = cv2.cvtColor(cropped, cv2.COLOR_BGR2GRAY)
+    return downscale_max_dimension(processed, max_dimension)
 
 
 def encode_png(frame, compression=6):
@@ -126,38 +138,3 @@ def encode_png(frame, compression=6):
     if not success:
         raise ValueError("PNG encoding failed")
     return encoded.tobytes()
-
-
-def suggest_roi(frame, margin=0.03):
-    """Suggest a normalized ROI around meaningful dark content, or return None."""
-    if frame is None or getattr(frame, "size", 0) == 0:
-        return None
-    if not 0 <= margin < 0.5:
-        raise ValueError("margin must be between 0 and 0.5")
-
-    gray = frame if len(frame.shape) == 2 else cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-    background = cv2.GaussianBlur(gray, (0, 0), 25)
-    normalized = cv2.divide(gray, background, scale=255)
-    mask = cv2.threshold(normalized, 245, 255, cv2.THRESH_BINARY_INV)[1]
-    mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, np.ones((3, 3), np.uint8))
-    mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, np.ones((9, 9), np.uint8))
-
-    points = cv2.findNonZero(mask)
-    if points is None:
-        return None
-    x, y, width, height = cv2.boundingRect(points)
-    frame_height, frame_width = gray.shape[:2]
-    if width < max(4, frame_width * 0.01) or height < max(4, frame_height * 0.01):
-        return None
-
-    pad_x, pad_y = round(width * margin), round(height * margin)
-    left = max(0, x - pad_x)
-    top = max(0, y - pad_y)
-    right = min(frame_width, x + width + pad_x)
-    bottom = min(frame_height, y + height + pad_y)
-    return (
-        left / frame_width,
-        top / frame_height,
-        (right - left) / frame_width,
-        (bottom - top) / frame_height,
-    )

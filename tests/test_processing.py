@@ -7,7 +7,6 @@ from math_camera.processing import (
     encode_png,
     process_submission,
     rotate_frame,
-    suggest_roi,
     validate_roi,
 )
 
@@ -56,11 +55,10 @@ def test_submission_processing_is_grayscale_and_downscaled():
     assert encode_png(result)[:8] == b"\x89PNG\r\n\x1a\n"
 
 
-def test_suggest_roi_finds_content_and_blank_frame_returns_none():
-    frame = np.full((100, 200, 3), 240, dtype=np.uint8)
-    frame[35:65, 70:130] = 20
-    roi = suggest_roi(frame)
-    assert roi is not None
-    assert roi[0] < 0.35 and roi[1] < 0.4
-    assert roi[0] + roi[2] > 0.65
-    assert suggest_roi(np.full_like(frame, 240)) is None
+def test_submission_processing_can_disable_enhancement():
+    frame = np.full((100, 200, 3), 180, dtype=np.uint8)
+    frame[40:60, 80:120] = 90
+    result = process_submission(frame, (0, 0, 1, 1), enhance=False)
+    assert result.ndim == 2
+    assert result[10, 10] == 180
+    assert result[50, 100] == 90

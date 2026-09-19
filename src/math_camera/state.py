@@ -18,6 +18,7 @@ class CaptureSettings:
     camera_id: str | None = None
     rotation: int = 1
     roi: tuple[float, float, float, float] | None = (0.0, 0.0, 1.0, 1.0)
+    enhance: bool = True
 
     def __post_init__(self):
         self.rotation %= 4

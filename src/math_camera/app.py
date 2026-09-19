@@ -339,7 +339,11 @@ def capture_frame_to_clipboard(
 ):
     try:
         settings = shared_state.get_settings()
-        processed = process_submission(rotate_frame(frame, settings.rotation), settings.roi)
+        processed = process_submission(
+            rotate_frame(frame, settings.rotation),
+            settings.roi,
+            enhance=settings.enhance,
+        )
         payload = encode_png(processed)
         MacOSClipboard().copy_png(payload)
         file_size_bytes = len(payload)

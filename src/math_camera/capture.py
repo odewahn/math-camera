@@ -71,7 +71,11 @@ class CaptureWorker:
             self.state.publish_status(CaptureStatus.CAPTURING, "Capturing")
             try:
                 frame = rotate_frame(request.frame, request.settings.rotation)
-                frame = process_submission(frame, request.settings.roi)
+                frame = process_submission(
+                    frame,
+                    request.settings.roi,
+                    enhance=request.settings.enhance,
+                )
                 payload = encode_png(frame)
                 copy_image = self.clipboard.copy_png
                 try:
