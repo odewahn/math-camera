@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import time
+
 import cv2
 import numpy as np
 
@@ -10,6 +12,7 @@ from .state import FrameStore, SharedState
 
 PREVIEW_WIDTH = 960
 PREVIEW_HEIGHT = 540
+PREVIEW_FPS = 15
 ROI_INTERACTION_MARGIN = 0.05
 
 
@@ -34,6 +37,10 @@ class CameraGui:
         self._preview = None
         self._roi_drag = None
         self._display_rect = None
+        self._last_frame_generation = -1
+        self._last_rotation = None
+        self._preview_frame = None
+        self._preview_image = None
 
     def run(self):
         import dearpygui.dearpygui as dpg
@@ -45,8 +52,11 @@ class CameraGui:
             dpg.setup_dearpygui()
             dpg.show_viewport()
             while dpg.is_dearpygui_running():
+                frame_started = time.monotonic()
                 self._update(dpg)
                 dpg.render_dearpygui_frame()
+                elapsed = time.monotonic() - frame_started
+                time.sleep(max(0, (1 / PREVIEW_FPS) - elapsed))
         finally:
             dpg.destroy_context()
             self.on_close()
@@ -137,23 +147,32 @@ class CameraGui:
             dpg.stop_dearpygui()
 
     def _update(self, dpg):
-        frame = self.frame_store.snapshot()
         settings = self.state.get_settings()
-        if frame is None:
-            image = np.zeros((PREVIEW_HEIGHT, PREVIEW_WIDTH, 4), dtype=np.uint8)
-            cv2.putText(
-                image,
-                "Waiting for camera...",
-                (24, 46),
-                cv2.FONT_HERSHEY_SIMPLEX,
-                1,
-                (255, 255, 255, 255),
-                2,
-            )
-            image = image.astype(np.float32) / 255.0
-        else:
-            preview = rotate_frame(frame, settings.rotation)
-            image = self._fit_preview(preview)
+        generation = self.frame_store.generation
+        preview_changed = (
+            generation != self._last_frame_generation or settings.rotation != self._last_rotation
+        )
+        if preview_changed:
+            frame = self.frame_store.snapshot()
+            if frame is None:
+                image = np.zeros((PREVIEW_HEIGHT, PREVIEW_WIDTH, 4), dtype=np.uint8)
+                cv2.putText(
+                    image,
+                    "Waiting for camera...",
+                    (24, 46),
+                    cv2.FONT_HERSHEY_SIMPLEX,
+                    1,
+                    (255, 255, 255, 255),
+                    2,
+                )
+                self._preview_frame = None
+                self._preview_image = image.astype(np.float32) / 255.0
+            else:
+                self._preview_frame = rotate_frame(frame, settings.rotation)
+                self._preview_image = self._fit_preview(self._preview_frame)
+            self._last_frame_generation = generation
+            self._last_rotation = settings.rotation
+
         dpg.delete_item(self._preview, children_only=True)
         dpg.draw_image(
             self._texture,
@@ -161,9 +180,10 @@ class CameraGui:
             (PREVIEW_WIDTH, PREVIEW_HEIGHT),
             parent=self._preview,
         )
-        if frame is not None:
-            self._draw_roi(dpg, preview, settings.roi)
-        dpg.set_value(self._texture, image.ravel())
+        if self._preview_frame is not None:
+            self._draw_roi(dpg, self._preview_frame, settings.roi)
+        if preview_changed:
+            dpg.set_value(self._texture, self._preview_image.ravel())
         status = self.state.get_status()
         dpg.set_value(self._status_text, f"{status.state.value.title()}: {status.message}")
 
