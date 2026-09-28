@@ -5,6 +5,8 @@ import time
 from dataclasses import dataclass
 from enum import Enum
 
+DEFAULT_ROI = (0.05, 0.05, 0.90, 0.90)
+
 
 @dataclass(frozen=True)
 class CameraInfo:
@@ -17,7 +19,7 @@ class CameraInfo:
 class CaptureSettings:
     camera_id: str | None = None
     rotation: int = 1
-    roi: tuple[float, float, float, float] | None = (0.0, 0.0, 1.0, 1.0)
+    roi: tuple[float, float, float, float] | None = DEFAULT_ROI
     enhance: bool = True
 
     def __post_init__(self):

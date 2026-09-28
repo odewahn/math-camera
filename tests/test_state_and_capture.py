@@ -13,6 +13,10 @@ from math_camera.state import (
 )
 
 
+def test_capture_settings_default_roi_is_inset_from_frame_edges():
+    assert CaptureSettings().roi == (0.05, 0.05, 0.90, 0.90)
+
+
 def test_frame_store_snapshots_are_isolated():
     store = FrameStore()
     frame = np.zeros((2, 2), dtype=np.uint8)

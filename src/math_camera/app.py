@@ -6,7 +6,7 @@ from math_camera import __version__
 from math_camera.cameras import camera_info_from_device, next_camera, select_camera
 from math_camera.capture import CaptureRequest, CaptureWorker, MacOSClipboard
 from math_camera.processing import encode_png, process_submission, rotate_frame
-from math_camera.state import FrameStore, SharedState
+from math_camera.state import DEFAULT_ROI, FrameStore, SharedState
 
 if platform.system() == "Darwin":
     import cv2
@@ -227,7 +227,7 @@ def rotate_clockwise():
     with rotation_lock:
         rotation_quarter_turns = (rotation_quarter_turns + 1) % 4
         turns = rotation_quarter_turns
-        shared_state.update_settings(rotation=turns, roi=(0.0, 0.0, 1.0, 1.0))
+        shared_state.update_settings(rotation=turns, roi=DEFAULT_ROI)
 
     print(f"Rotated preview/capture to {turns * 90} degrees")
 
@@ -238,7 +238,7 @@ def rotate_counterclockwise():
     with rotation_lock:
         rotation_quarter_turns = (rotation_quarter_turns - 1) % 4
         turns = rotation_quarter_turns
-        shared_state.update_settings(rotation=turns, roi=(0.0, 0.0, 1.0, 1.0))
+        shared_state.update_settings(rotation=turns, roi=DEFAULT_ROI)
 
     print(f"Rotated preview/capture to {turns * 90} degrees")
 
