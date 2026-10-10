@@ -19,7 +19,9 @@ ROI_CORNER_HIT_RADIUS = 30
 ROI_EDGE_HIT_RADIUS = 24
 ROI_GUIDE_DASH_LENGTH = 12
 ROI_GUIDE_GAP_LENGTH = 8
-ROI_SHIELD_ALPHA = 105
+# Keep the excluded area visibly subdued without making low-light previews
+# difficult to inspect.
+ROI_SHIELD_ALPHA = 12
 
 
 class CameraGui:

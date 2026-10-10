@@ -204,7 +204,7 @@ For notebooks and textbooks, I've found it useful to physically rotate the V4K c
 
 Math Camera rotates the resulting image back upright in software.
 
-The current setup captures at **1280×720**, which has proven sufficient for both handwritten pencil work and fairly small textbook type.
+The current setup captures at **3264×2448**, providing substantially more detail for handwritten pencil work and small textbook type.
 
 ---
 

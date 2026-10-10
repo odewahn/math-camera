@@ -43,8 +43,8 @@ else:
     NativeCameraCapture = None
 
 
-WIDTH = 1280
-HEIGHT = 720
+WIDTH = 3264
+HEIGHT = 2448
 FPS = 30
 LOW_QUALITY_JPEG = 55
 HIGH_QUALITY_JPEG = 95

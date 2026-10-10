@@ -53,7 +53,7 @@ class NativeCameraDelegate(NSObject):
 
 
 class NativeCameraCapture:
-    def __init__(self, camera_index=0, width=1280, height=720, camera_id=None):
+    def __init__(self, camera_index=0, width=3264, height=2448, camera_id=None):
         self.camera_index = camera_index
         self.camera_id = camera_id
         self.width = width
